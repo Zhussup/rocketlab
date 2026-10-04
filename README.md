@@ -1,5 +1,7 @@
 # rocketlab
 
+![rocketlab banner — animated ASCII art over a starfield](assets/demo.gif)
+
 A space mission simulator: launch rockets and probes, assemble your own, and
 write flight software for them. Two clients watch the same simulation — a
 terminal dashboard and a graphical map view.

@@ -31,7 +31,17 @@ if(ROCKETLAB_WERROR)
 endif()
 
 include(FetchContent)
+
+FetchContent_Declare(nlohmann_json
+  GIT_REPOSITORY https://github.com/nlohmann/json.git
+  GIT_TAG v3.11.3
+  GIT_SHALLOW TRUE)
+FetchContent_MakeAvailable(nlohmann_json)
+
 add_subdirectory(libs/core)
+add_subdirectory(libs/scenario)
+
+add_subdirectory(apps/cli)
 
 if(ROCKETLAB_BUILD_TESTS)
   enable_testing()

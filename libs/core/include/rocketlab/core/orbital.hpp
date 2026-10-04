@@ -58,6 +58,12 @@ inline constexpr double kNodeTolerance = 1e-12;
 /// Eccentricity below which an orbit counts as circular.
 inline constexpr double kCircularTolerance = 1e-10;
 
+/// Brings an angle into [0, 2pi), the conventional range for the three angular
+/// orbital elements. atan2 alone hands back (-pi, pi], which names the same
+/// direction but reads badly in telemetry and makes element-wise comparison
+/// depend on which revolution you happen to be on.
+[[nodiscard]] double wrap_angle(double radians) noexcept;
+
 [[nodiscard]] ConicKind classify(const OrbitalElements& elements) noexcept;
 
 /// Converts a Cartesian state into orbital elements about a body whose
@@ -85,5 +91,14 @@ inline constexpr double kCircularTolerance = 1e-10;
 /// Mean anomaly (or Barker's parameter, on a parabola) at the elements' true
 /// anomaly. Purely geometric: it depends on the conic's shape, not on mu.
 [[nodiscard]] double mean_anomaly(const OrbitalElements& elements) noexcept;
+
+/// Inverse of `mean_anomaly`: solves Kepler's equation and converts the
+/// resulting anomaly into a true anomaly. Handles all three conic families, so
+/// an ephemeris published as mean elements can be turned into a state.
+[[nodiscard]] double true_anomaly_from_mean(double mean_anomaly, double eccentricity) noexcept;
+
+/// Convenience for building a state from mean elements, which is how
+/// ephemerides are published.
+[[nodiscard]] StateVector state_from_mean_elements(const OrbitalElements& elements, double mu) noexcept;
 
 }  // namespace rocketlab::core

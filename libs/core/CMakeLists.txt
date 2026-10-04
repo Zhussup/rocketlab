@@ -1,6 +1,8 @@
 add_library(rocketlab_core STATIC
+  src/catalog.cpp
   src/orbital.cpp
-  src/time.cpp)
+  src/time.cpp
+  src/world.cpp)
 
 target_include_directories(rocketlab_core
   PUBLIC

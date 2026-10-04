@@ -7,11 +7,13 @@ FetchContent_MakeAvailable(Catch2)
 add_executable(rocketlab_tests
   test_main.cpp
   test_orbital.cpp
-  test_time.cpp)
+  test_time.cpp
+  test_world.cpp)
 
 target_link_libraries(rocketlab_tests
   PRIVATE
     rocketlab::core
+    rocketlab::scenario
     Catch2::Catch2WithMain
     rocketlab_flags)
 

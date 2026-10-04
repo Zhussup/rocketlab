@@ -4,6 +4,16 @@
 #include <cmath>
 
 namespace rocketlab::core {
+
+double wrap_angle(double radians) noexcept {
+  constexpr double kFullTurn = 6.283185307179586476925286766559;
+  double wrapped = std::fmod(radians, kFullTurn);
+  if (wrapped < 0.0) {
+    wrapped += kFullTurn;
+  }
+  return wrapped;
+}
+
 namespace {
 
 constexpr double kTwoPi = 6.283185307179586476925286766559;
@@ -12,18 +22,6 @@ constexpr double kPi = 3.141592653589793238462643383279;
 /// Beyond this |H| the hyperbolic functions overflow a double, and the
 /// corresponding orbit is far outside anything the simulator cares about.
 constexpr double kMaxHyperbolicAnomaly = 700.0;
-
-/// Brings an angle into [0, 2pi), the conventional range for the three
-/// angular orbital elements. atan2 alone would hand back (-pi, pi], which is
-/// the same direction but reads badly in telemetry and makes element-wise
-/// comparisons depend on which revolution you happen to be on.
-[[nodiscard]] double wrap_two_pi(double angle) noexcept {
-  double wrapped = std::fmod(angle, kTwoPi);
-  if (wrapped < 0.0) {
-    wrapped += kTwoPi;
-  }
-  return wrapped;
-}
 
 /// Solves Kepler's equation M = E - e sin E for the eccentric anomaly.
 ///
@@ -217,24 +215,24 @@ OrbitalElements rv_to_elements(const StateVector& state, double mu) noexcept {
   // formulas below are written for the prograde sense and get mirrored here.
   const double sense = h_vec.z < 0.0 ? -1.0 : 1.0;
 
-  el.raan = equatorial ? 0.0 : wrap_two_pi(std::atan2(h_vec.x, -h_vec.y));
+  el.raan = equatorial ? 0.0 : wrap_angle(std::atan2(h_vec.x, -h_vec.y));
 
   if (circular) {
     // argp is undefined; fold it into nu so that nu becomes the argument of
     // latitude (equatorial case: the true longitude).
     el.argp = 0.0;
-    el.nu = wrap_two_pi(equatorial
+    el.nu = wrap_angle(equatorial
                             ? std::atan2(sense * state.r.y, state.r.x)
                             : std::atan2(dot(cross(n_vec, state.r), h_vec) / h,
                                          dot(n_vec, state.r)));
   } else {
-    el.argp = wrap_two_pi(
+    el.argp = wrap_angle(
         equatorial ? std::atan2(sense * e_vec.y, e_vec.x)
                    : std::atan2(dot(cross(n_vec, e_vec), h_vec) / h, dot(n_vec, e_vec)));
     // sin(nu) = (r . v) sqrt(p/mu) / (e r) and cos(nu) = (e_vec . r) / (e r)
     // share the positive factor 1/(e r), so atan2 of the numerators is exact
     // and, unlike acos, keeps full precision near nu = 0 and nu = pi.
-    el.nu = wrap_two_pi(
+    el.nu = wrap_angle(
         std::atan2(dot(state.r, state.v) * std::sqrt(el.p / mu), dot(e_vec, state.r)));
   }
   return el;
@@ -309,6 +307,22 @@ double mean_motion(double semi_major_axis, double mu) noexcept {
     return 0.0;
   }
   return std::sqrt(mu / (a * a * a));
+}
+
+double true_anomaly_from_mean(double mean, double eccentricity) noexcept {
+  if (eccentricity < 1.0 - kParabolicTolerance) {
+    return eccentric_to_true(solve_kepler_elliptic(mean, eccentricity), eccentricity);
+  }
+  if (eccentricity > 1.0 + kParabolicTolerance) {
+    return hyperbolic_to_true(solve_kepler_hyperbolic(mean, eccentricity), eccentricity);
+  }
+  return 2.0 * std::atan(barker_inverse(mean));
+}
+
+StateVector state_from_mean_elements(const OrbitalElements& elements, double mu) noexcept {
+  OrbitalElements resolved = elements;
+  resolved.nu = true_anomaly_from_mean(mean_anomaly(elements), elements.e);
+  return elements_to_rv(resolved, mu);
 }
 
 double mean_anomaly(const OrbitalElements& elements) noexcept {

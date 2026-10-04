@@ -1,0 +1,40 @@
+{
+  "name": "leo",
+  "epoch": "2026-10-05T00:00:00",
+  "entities": [
+    {
+      "name": "Station",
+      "parent": "Earth",
+      "orbit": {
+        "periapsis_altitude": 400000,
+        "apoapsis_altitude": 400000,
+        "inclination_deg": 51.6
+      },
+      "mass": 420000.0,
+      "radius": 60.0
+    },
+    {
+      "name": "GTO burn",
+      "parent": "Earth",
+      "orbit": {
+        "periapsis_altitude": 250000,
+        "apoapsis_altitude": 35786000,
+        "inclination_deg": 28.5,
+        "argp_deg": 180.0
+      },
+      "mass": 800.0,
+      "radius": 3.0
+    },
+    {
+      "name": "Lunar transfer",
+      "parent": "Moon",
+      "orbit": {
+        "periapsis_altitude": 100000,
+        "apoapsis_altitude": 100000,
+        "inclination_deg": 90.0
+      },
+      "mass": 500.0,
+      "radius": 2.0
+    }
+  ]
+}
