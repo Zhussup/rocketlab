@@ -14,8 +14,12 @@ ScreenPoint Camera2D::project(const proto::Vec3d& root) const noexcept {
   const double rx = dx * c + dy * s;
   const double ry = -dx * s + dy * c;
 
-  const double half_w = 0.5 * static_cast<double>(width);
-  const double half_h = 0.5 * static_cast<double>(height);
+  // Screen coordinates are cell indices, so a viewport of `width` columns spans
+  // [0, width - 1] and its centre is half a cell inside the naive midpoint.
+  // Getting this wrong puts the tracked object half a cell off centre and, at
+  // high zoom, makes the marker and the reticle disagree about where it is.
+  const double half_w = 0.5 * static_cast<double>(width - 1);
+  const double half_h = 0.5 * static_cast<double>(height - 1);
   const double aspect = cell_aspect > 0.0 ? cell_aspect : 1.0;
 
   // Screen Y grows downward, the root frame's Y grows up, so the second term
@@ -30,8 +34,10 @@ double Camera2D::to_pixels(double metres) const noexcept {
 
 proto::Vec3d Camera2D::unproject(double x, double y) const noexcept {
   const double aspect = cell_aspect > 0.0 ? cell_aspect : 1.0;
-  const double rx = (x - 0.5 * static_cast<double>(width)) * metres_per_pixel / aspect;
-  const double ry = (0.5 * static_cast<double>(height) - y) * metres_per_pixel;
+  const double rx =
+      (x - 0.5 * static_cast<double>(width - 1)) * metres_per_pixel / aspect;
+  const double ry =
+      (0.5 * static_cast<double>(height - 1) - y) * metres_per_pixel;
 
   // Inverse rotation: the transpose, since the matrix is orthonormal.
   const double c = std::cos(yaw);

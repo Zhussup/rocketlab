@@ -48,7 +48,7 @@ namespace {
   const ScreenPoint start = a;
   a = ScreenPoint{start.x + t0 * dx, start.y + t0 * dy};
   b = ScreenPoint{start.x + t1 * dx, start.y + t1 * dy};
-  return a.x <= b.x || a.y <= b.y || true;
+  return true;
 }
 
 void append_path(Scene& out, Color color, double width, const std::vector<ScreenPoint>& path,
@@ -133,6 +133,18 @@ Primitive& Scene::add(PrimitiveKind kind, Color color) {
   primitive.kind = kind;
   primitive.color = color;
   return primitive;
+}
+
+void follow_target(const proto::Snapshot& snapshot, Camera2D& camera) noexcept {
+  if (!camera.following || camera.target == 0) {
+    return;
+  }
+  for (std::uint32_t i = 0; i < snapshot.entity_count && i < proto::kMaxEntities; ++i) {
+    if (snapshot.entities[i].id == camera.target) {
+      camera.center_on(root_position(snapshot.entities[i]));
+      return;
+    }
+  }
 }
 
 double choose_grid_spacing(double metres_per_pixel, double min_spacing) noexcept {

@@ -45,6 +45,9 @@ core::Scenario two_entity_scenario() {
   core::ScenarioEntity debris = station;
   debris.name = "Stage";
   debris.controllable = false;
+  // A different orbit, so the two entities are distinguishable on the map
+  // rather than drawn on top of each other.
+  debris.apoapsis_altitude = 900e3;
 
   scenario.entities = {station, debris};
   return scenario;
@@ -146,7 +149,7 @@ TEST_CASE("framing a body puts it at a readable size", "[render]") {
   camera.width = 80;
   camera.height = 40;
 
-  const double earth_radius = core::kEarthRadius;
+  const double earth_radius = core::kRadiusEarth;
   camera.frame(proto::Vec3d{1.0e11, 0.0, 0.0}, earth_radius, 0.25);
 
   CHECK_THAT(camera.center_x, WithinAbs(1.0e11, 1e-3));
@@ -181,8 +184,14 @@ TEST_CASE("a scene contains the bodies, the vessels and a labelled selection", "
   camera.width = 80;
   camera.height = 24;
   camera.cell_aspect = 2.0;
-  // Zoomed in on the station, which is where the interesting detail is.
-  camera.frame(proto::Vec3d{0.0, 0.0, 0.0}, 8000e3, 0.4);
+  // A thousand kilometres a row: the Earth is a disc a few rows across and the
+  // station's orbit fits inside the frame. The camera follows the selection
+  // rather than sitting at the root-frame origin, which is the Sun and would
+  // show nothing but empty space.
+  camera.metres_per_pixel = 1.0e6;
+  camera.following = true;
+  camera.target = snapshot.selected;
+  render::follow_target(snapshot, camera);
 
   render::Scene scene;
   render::SceneOptions options;
@@ -252,7 +261,12 @@ TEST_CASE("a predicted path is drawn from the samples it was given", "[render]")
   camera.width = 80;
   camera.height = 24;
   camera.cell_aspect = 2.0;
-  camera.metres_per_pixel = 2.0e4;
+  // Zoomed so the orbit is larger than the frame on both axes: the path has to
+  // be clipped, and it is the clipped case that is worth checking.
+  camera.metres_per_pixel = 5.0e5;
+  camera.following = true;
+  camera.target = station;
+  render::follow_target(snapshot, camera);
 
   render::Scene scene;
   render::SceneOptions options;
@@ -315,7 +329,7 @@ TEST_CASE("the local sim source publishes a frame a client can use", "[simhost]"
   CHECK(std::string_view(station.name.view()) == "Station");
   CHECK(proto::has_flag(station.flags, proto::Flags::Controllable));
   CHECK_FALSE(proto::has_flag(station.flags, proto::Flags::Escaping));
-  CHECK_THAT(station.periapsis, WithinRel(core::kEarthRadius + 400e3, 1e-3));
+  CHECK_THAT(station.periapsis, WithinRel(core::kRadiusEarth + 400e3, 1e-3));
 
   SECTION("the parent position matches the catalogue, so a client can compose the root state") {
     const core::BodySystem system = core::BodySystem::solar_system();
@@ -398,7 +412,7 @@ TEST_CASE("a trajectory query predicts where the simulation will actually be", "
   const core::BodyId earth = *system.find("Earth");
 
   SECTION("every sample sits at the orbital radius above the Earth at that instant") {
-    const double expected = core::kEarthRadius + 400e3;
+    const double expected = core::kRadiusEarth + 400e3;
     const double dt = period / static_cast<double>(simhost::LocalSimSource::kTrajectorySamples);
     for (std::size_t i = 0; i < path.size(); ++i) {
       const double tdb = start_tdb + static_cast<double>(i) * dt;

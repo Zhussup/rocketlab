@@ -81,6 +81,18 @@ struct SceneOptions {
                       entity.parent_position.z + entity.position.z};
 }
 
+/// Re-centres a following camera on the snapshot's selected entity.
+///
+/// The camera's centre tracks the object while the camera itself stays away
+/// from it, which is the whole reason the view is useful: you see the object's
+/// motion against the bodies around it, not a stationary dot with the world
+/// sliding past. Kept out of `build_scene` so that building a frame stays a
+/// pure function of its inputs — a caller that wants a fixed map simply does
+/// not call this, and one that wants to pan clears `following`.
+///
+/// A selection that is missing or unset leaves the camera where it is.
+void follow_target(const proto::Snapshot& snapshot, Camera2D& camera) noexcept;
+
 /// Fills `out` with the frame.
 ///
 /// `trajectory` is the predicted path of `snapshot.selected` in the root
