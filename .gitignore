@@ -8,3 +8,10 @@ compile_commands.json
 *.a
 *.so
 imgui.ini
+
+# Notes and scratch documents stay local; the README is the only prose that
+# ships. Negation applies to files, so a README inside a subdirectory is kept
+# too — that is deliberate, since per-module READMEs are documentation rather
+# than scratch.
+*.md
+!README.md
