@@ -26,15 +26,22 @@ struct ScreenPoint {
   double y{0.0};
 };
 
-/// Metres per pixel. Below this a view is meaningless, above it the inner
-/// solar system no longer fits on a terminal.
+/// Metres per output unit. Below this a view is meaningless, above it the
+/// inner solar system no longer fits on a terminal.
 inline constexpr double kMinMetresPerPixel = 0.1;
 inline constexpr double kMaxMetresPerPixel = 4.0e12;
 
-/// The distance from the Sun to Neptune, used as the widest useful framing.
 struct Camera2D {
   int width{80};
   int height{24};
+
+  /// Horizontal extent of one vertical output unit, i.e. the aspect ratio of
+  /// a cell. A character terminal cell is roughly twice as tall as it is wide,
+  /// so the TUI sets this to 2.0 and the map comes out round instead of
+  /// stretched; a pixel backend leaves it at 1.0. It is a property of the
+  /// medium, which is why the camera carries it rather than each backend
+  /// rediscovering it.
+  double cell_aspect{1.0};
 
   /// Centre of the view, in the root frame, projected onto the view plane.
   double center_x{0.0};

@@ -16,10 +16,12 @@ ScreenPoint Camera2D::project(const proto::Vec3d& root) const noexcept {
 
   const double half_w = 0.5 * static_cast<double>(width);
   const double half_h = 0.5 * static_cast<double>(height);
+  const double aspect = cell_aspect > 0.0 ? cell_aspect : 1.0;
 
   // Screen Y grows downward, the root frame's Y grows up, so the second term
-  // is subtracted rather than added.
-  return ScreenPoint{half_w + rx / metres_per_pixel, half_h - ry / metres_per_pixel};
+  // is subtracted rather than added. The x term carries the aspect because
+  // `metres_per_pixel` is defined vertically.
+  return ScreenPoint{half_w + aspect * rx / metres_per_pixel, half_h - ry / metres_per_pixel};
 }
 
 double Camera2D::to_pixels(double metres) const noexcept {
@@ -27,7 +29,8 @@ double Camera2D::to_pixels(double metres) const noexcept {
 }
 
 proto::Vec3d Camera2D::unproject(double x, double y) const noexcept {
-  const double rx = (x - 0.5 * static_cast<double>(width)) * metres_per_pixel;
+  const double aspect = cell_aspect > 0.0 ? cell_aspect : 1.0;
+  const double rx = (x - 0.5 * static_cast<double>(width)) * metres_per_pixel / aspect;
   const double ry = (0.5 * static_cast<double>(height) - y) * metres_per_pixel;
 
   // Inverse rotation: the transpose, since the matrix is orthonormal.

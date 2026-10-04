@@ -40,8 +40,15 @@ FetchContent_MakeAvailable(nlohmann_json)
 
 add_subdirectory(libs/core)
 add_subdirectory(libs/scenario)
+add_subdirectory(libs/proto)
+add_subdirectory(libs/simhost)
+add_subdirectory(libs/render)
 
 add_subdirectory(apps/cli)
+
+if(ROCKETLAB_BUILD_TUI)
+  add_subdirectory(apps/tui)
+endif()
 
 if(ROCKETLAB_BUILD_TESTS)
   enable_testing()
