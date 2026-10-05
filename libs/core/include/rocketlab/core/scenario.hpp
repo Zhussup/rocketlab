@@ -5,6 +5,7 @@
 
 #include "rocketlab/core/body.hpp"
 #include "rocketlab/core/time.hpp"
+#include "rocketlab/core/vessel.hpp"
 
 namespace rocketlab::core {
 
@@ -25,6 +26,22 @@ struct ScenarioEntity {
   double mass{1000.0};  // [kg]
   double radius{1.0};   // [m]
   bool controllable{true};
+
+  /// The stack, when the vessel is built from parts. When this is empty the
+  /// entity is a point mass and `mass` and `radius` above are used as given;
+  /// when it is not, the parts decide both and those two are ignored. A scenario
+  /// names parts, never their masses — the catalogue is the only place those
+  /// live, so performance cannot depend on who wrote the file.
+  std::vector<StackPart> parts;
+
+  /// Path to a Lua flight computer to fly this entity with, or empty for none.
+  ///
+  /// A path, not the code itself. A scenario is a document a person edits and
+  /// shares; a scenario that carried executable text would be one that has to
+  /// be read before it is opened. Keeping the two apart means the file can be
+  /// read, diffed and mailed around without anyone having to trust it, and the
+  /// code can be versioned and tested on its own.
+  std::string script;
 };
 
 struct Scenario {

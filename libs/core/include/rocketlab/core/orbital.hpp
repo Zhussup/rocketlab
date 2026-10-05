@@ -33,8 +33,11 @@ struct OrbitalElements {
   double argp{0.0};  // argument of periapsis [rad]
   double nu{0.0};    // true anomaly [rad]
 
-  /// True when the state had no well-defined orbital plane (a purely radial
-  /// trajectory). Every other field is meaningless in that case.
+  /// True when the state had no well-defined orbital plane (a radial
+  /// trajectory, to within a relative tolerance). Every other field is
+  /// meaningless in that case, and `propagate` leaves such a state alone: no
+  /// conic fits it, and a caller that needs it to move has to integrate it
+  /// numerically.
   bool degenerate{false};
 
   /// a = p / (1 - e^2). Infinite for a parabola, negative for a hyperbola.
@@ -80,6 +83,12 @@ inline constexpr double kCircularTolerance = 1e-10;
 /// of 100000x costs exactly the same as 1x. The trade-off is that it cannot
 /// represent forces that are not an inverse square, so anything under thrust,
 /// drag or third-body perturbation must fall back to a numerical integrator.
+///
+/// A degenerate state — a rectilinear trajectory, which has no osculating
+/// conic — is returned unchanged, and the caller that needs one to move has to
+/// integrate it instead. That is a deliberate freeze rather than a NaN: the
+/// analytic machinery has nothing to say about a radial orbit, and inventing a
+/// number for it would put it in the snapshot.
 [[nodiscard]] StateVector propagate(const StateVector& state, double mu, double dt) noexcept;
 
 /// Specific orbital energy, v^2/2 - mu/r [J/kg]. Negative for a bound orbit.
@@ -100,5 +109,23 @@ inline constexpr double kCircularTolerance = 1e-10;
 /// Convenience for building a state from mean elements, which is how
 /// ephemerides are published.
 [[nodiscard]] StateVector state_from_mean_elements(const OrbitalElements& elements, double mu) noexcept;
+
+/// Time since the last periapsis passage [s], in `[0, period)`.
+///
+/// Zero for a degenerate or unbound orbit, which has no period to be a fraction
+/// of. Callers that care should check `degenerate` and the conic kind first.
+[[nodiscard]] double time_since_periapsis(const OrbitalElements& elements, double mu) noexcept;
+
+/// Time to the next apoapsis [s], in `[0, period)`.
+///
+/// Part of the same toolkit as `period`: an apsis is a property of the conic the
+/// vessel is on, so when it will be reached follows from the elements rather
+/// than from stepping the orbit forward. A flight computer that has to burn at
+/// apoapsis needs this and should not be re-deriving it, because a Kepler solve
+/// written twice is a Kepler solve that will disagree with itself.
+[[nodiscard]] double time_to_apoapsis(const OrbitalElements& elements, double mu) noexcept;
+
+/// Time to the next periapsis [s], in `[0, period)`.
+[[nodiscard]] double time_to_periapsis(const OrbitalElements& elements, double mu) noexcept;
 
 }  // namespace rocketlab::core

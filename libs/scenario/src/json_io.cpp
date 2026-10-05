@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 
 #include "rocketlab/core/time.hpp"
 
@@ -26,6 +27,17 @@ using nlohmann::json;
     fail(std::string("field '") + key + "' must be a number");
   }
   return it->get<double>();
+}
+
+[[nodiscard]] int read_int(const json& object, const char* key, int fallback) {
+  const auto it = object.find(key);
+  if (it == object.end() || it->is_null()) {
+    return fallback;
+  }
+  if (!it->is_number_integer()) {
+    fail(std::string("field '") + key + "' must be an integer");
+  }
+  return it->get<int>();
 }
 
 [[nodiscard]] std::string read_string(const json& object, const char* key,
@@ -87,6 +99,28 @@ using nlohmann::json;
   const auto controllable = node.find("controllable");
   if (controllable != node.end() && controllable->is_boolean()) {
     entity.controllable = controllable->get<bool>();
+  }
+
+  const auto parts = node.find("parts");
+  if (parts != node.end() && !parts->is_null()) {
+    if (!parts->is_array()) {
+      fail("'parts' must be an array");
+    }
+    for (const json& entry : *parts) {
+      if (!entry.is_object()) {
+        fail("every entry of 'parts' must be an object");
+      }
+      core::StackPart part;
+      part.part = read_string(entry, "part", "");
+      if (part.part.empty()) {
+        fail("a 'parts' entry must name a 'part'");
+      }
+      part.stage = read_int(entry, "stage", 0);
+      if (part.stage < 0) {
+        fail("part '" + part.part + "' has a negative stage");
+      }
+      entity.parts.push_back(std::move(part));
+    }
   }
 
   const auto orbit = node.find("orbit");
@@ -180,8 +214,22 @@ std::string write_scenario(const core::Scenario& scenario) {
     node["orbit"]["raan_deg"] = entity.raan_deg;
     node["orbit"]["argp_deg"] = entity.argp_deg;
     node["orbit"]["true_anomaly_deg"] = entity.true_anomaly_deg;
-    node["mass"] = entity.mass;
-    node["radius"] = entity.radius;
+    if (entity.parts.empty()) {
+      // A point mass carries its own figures. A vessel built from parts does
+      // not: writing them too would put two answers in the file, and the one a
+      // person edited would be the one that got ignored.
+      node["mass"] = entity.mass;
+      node["radius"] = entity.radius;
+    } else {
+      json parts = json::array();
+      for (const core::StackPart& part : entity.parts) {
+        json entry;
+        entry["part"] = part.part;
+        entry["stage"] = part.stage;
+        parts.push_back(std::move(entry));
+      }
+      node["parts"] = std::move(parts);
+    }
     node["controllable"] = entity.controllable;
     entities.push_back(std::move(node));
   }

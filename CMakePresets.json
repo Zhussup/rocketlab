@@ -29,14 +29,28 @@
       "displayName": "RelWithDebInfo (default)",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-        "ROCKETLAB_BUILD_TESTS": "ON"
+        "ROCKETLAB_BUILD_TESTS": "ON",
+        "ROCKETLAB_BUILD_TUI": "ON",
+        "ROCKETLAB_BUILD_GUI": "ON",
+        "ROCKETLAB_WERROR": "ON"
+      }
+    },
+    {
+      "name": "dev-headless",
+      "inherits": "dev",
+      "displayName": "RelWithDebInfo without the clients",
+      "binaryDir": "${sourceDir}/build/dev-headless",
+      "cacheVariables": {
+        "ROCKETLAB_BUILD_TUI": "OFF",
+        "ROCKETLAB_BUILD_GUI": "OFF"
       }
     }
   ],
   "buildPresets": [
     { "name": "debug", "configurePreset": "debug" },
     { "name": "release", "configurePreset": "release" },
-    { "name": "dev", "configurePreset": "dev" }
+    { "name": "dev", "configurePreset": "dev" },
+    { "name": "dev-headless", "configurePreset": "dev-headless" }
   ],
   "testPresets": [
     {

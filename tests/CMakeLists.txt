@@ -9,7 +9,22 @@ add_executable(rocketlab_tests
   test_orbital.cpp
   test_time.cpp
   test_world.cpp
-  test_client.cpp)
+  test_atmosphere.cpp
+  test_assembly.cpp
+  test_docking.cpp
+  test_client.cpp
+  test_camera3d.cpp
+  test_hud.cpp
+  test_hud_assembly.cpp
+  test_editor.cpp
+  test_vessel.cpp
+  test_flight.cpp)
+
+# One test loads the scenario in `scenarios/` and the script in `scripts/`, and
+# a test that can only find them from one working directory is a test that
+# breaks the first time someone runs the binary by hand.
+target_compile_definitions(rocketlab_tests
+  PRIVATE ROCKETLAB_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
 target_link_libraries(rocketlab_tests
   PRIVATE
@@ -17,6 +32,8 @@ target_link_libraries(rocketlab_tests
     rocketlab::scenario
     rocketlab::simhost
     rocketlab::render
+    rocketlab::hud
+    rocketlab::flight
     Catch2::Catch2WithMain
     rocketlab_flags)
 

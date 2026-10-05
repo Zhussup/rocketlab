@@ -31,6 +31,49 @@ struct ScreenPoint {
 inline constexpr double kMinMetresPerPixel = 0.1;
 inline constexpr double kMaxMetresPerPixel = 4.0e12;
 
+/// A camera resolved into the three axes a scene builder projects onto.
+///
+/// `Camera2D` and `Camera3D` both produce one, which is what lets a single
+/// scene builder serve the flat map and the orbitable view without knowing
+/// which it was handed. The axes are unit vectors in the root frame, and
+/// `forward` points from the camera toward `center`, so a point's `depth` grows
+/// as it moves away from the viewer.
+///
+/// It is a plain value on purpose: a builder takes it by const reference, so
+/// resolving a camera costs three normalisations per frame and nothing else.
+struct View {
+  proto::Vec3d center{};
+  proto::Vec3d right{1.0, 0.0, 0.0};
+  proto::Vec3d up{0.0, 1.0, 0.0};
+  proto::Vec3d forward{0.0, 0.0, -1.0};
+
+  double metres_per_pixel{1.0e3};
+  int width{80};
+  int height{24};
+  /// Horizontal extent of one vertical output unit; see `Camera2D::cell_aspect`.
+  double cell_aspect{1.0};
+
+  /// True when markers should be painted far to near. A flat map has nothing
+  /// behind anything, so it keeps the order the entities are stored in and its
+  /// output does not depend on a comparison that is a tie for every pair.
+  bool depth_sort{false};
+
+  /// Root-frame position to screen output units. Depth is dropped; ask for it
+  /// separately with `depth`.
+  [[nodiscard]] ScreenPoint project(const proto::Vec3d& root) const noexcept;
+
+  /// Metres along `forward` from the view centre. Positive is away from the
+  /// viewer, which is the order painter's algorithm wants reversed.
+  [[nodiscard]] double depth(const proto::Vec3d& root) const noexcept;
+
+  /// Converts a length in metres to a length in output units.
+  [[nodiscard]] double to_pixels(double metres) const noexcept;
+
+  /// Screen output units back to a root-frame position on the view plane. The
+  /// component along `forward` comes back as zero.
+  [[nodiscard]] proto::Vec3d unproject(double x, double y) const noexcept;
+};
+
 struct Camera2D {
   int width{80};
   int height{24};
@@ -79,6 +122,44 @@ struct Camera2D {
   /// Frames a sphere of `radius` metres so it occupies `fraction` of the
   /// shorter screen axis, centred on `root`.
   void frame(const proto::Vec3d& root, double radius, double fraction = 0.25) noexcept;
+
+  /// The same camera as a `View`, for a scene builder. `pitch` is zero by
+  /// construction: this camera looks straight down the ecliptic pole, which is
+  /// `Camera3D`'s top-down view.
+  [[nodiscard]] View view() const noexcept;
+};
+
+/// Eases the camera's centre onto the followed target instead of snapping to it.
+///
+/// Changing the selection is the one camera move a client makes that a person
+/// watches happen, and a hard cut throws the geometry away: a view of one vessel
+/// becomes a view of another and the distance between them, which is the thing
+/// worth seeing, is exactly what the cut hides. The centre therefore approaches
+/// the target exponentially rather than jumping to it.
+///
+/// The rate is a compromise, and it is worth saying why four per second is the
+/// answer. A tracking camera must not *lag*: an object at the speed of a low
+/// Earth orbit — 7.7 km/s — with a rate of 4/s trails the centre by r/rate, under
+/// two kilometres, which is a thousandth of a pixel at any zoom worth looking
+/// at. Slow enough to watch, fast enough that following is still following.
+struct CameraEase {
+  /// Approach rate, in 1/s. Zero, or negative, snaps.
+  double rate{4.0};
+  /// Where the centre is now, in the root frame.
+  proto::Vec3d center{};
+  /// True until the first step, when there is nothing to glide away from.
+  bool fresh{true};
+
+  /// Puts the centre where it belongs immediately, cancelling any glide.
+  void snap(const proto::Vec3d& to) noexcept;
+
+  /// Advances the centre toward `to` by `dt` seconds and returns where it is.
+  ///
+  /// Exponential, and therefore frame-rate independent: one step of `dt` lands
+  /// in the same place as two steps of `dt/2`. A glide whose speed depended on
+  /// how fast the client happened to be drawing would be a different glide on
+  /// every machine, and unrepeatable in a test.
+  [[nodiscard]] proto::Vec3d step(const proto::Vec3d& to, double dt) noexcept;
 };
 
 }  // namespace rocketlab::render

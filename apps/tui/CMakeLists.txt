@@ -12,8 +12,7 @@ FetchContent_MakeAvailable(ftxui)
 
 add_executable(rocketlab_tui
   main.cpp
-  canvas_backend.cpp
-  telemetry.cpp)
+  canvas_backend.cpp)
 
 target_link_libraries(rocketlab_tui
   PRIVATE
@@ -21,6 +20,8 @@ target_link_libraries(rocketlab_tui
     rocketlab::scenario
     rocketlab::simhost
     rocketlab::render
+    rocketlab::hud
     ftxui::screen
     ftxui::dom
+    ftxui::component
     rocketlab_flags)

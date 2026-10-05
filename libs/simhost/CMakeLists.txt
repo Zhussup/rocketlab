@@ -11,5 +11,6 @@ target_link_libraries(rocketlab_simhost
   PUBLIC
     rocketlab::core
     rocketlab::proto
+    rocketlab::flight
   PRIVATE
     rocketlab_flags)

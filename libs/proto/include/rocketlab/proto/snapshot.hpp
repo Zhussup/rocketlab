@@ -20,10 +20,22 @@
 namespace rocketlab::proto {
 
 inline constexpr std::size_t kMaxEntities = 256;
-inline constexpr std::size_t kMaxBodies = 32;
+/// The shipped catalogue holds the Sun, eight planets and nine moons. The
+/// headroom is deliberate: a snapshot is a fixed-size record and the bodies
+/// are what a client draws first, so this is the one array whose limit should
+/// not be discovered by a scenario quietly losing a moon.
+inline constexpr std::size_t kMaxBodies = 64;
 /// Including the terminating NUL. Names longer than this are truncated when
 /// the snapshot is published, which is safe at the display layer.
 inline constexpr std::size_t kMaxNameLength = 32;
+
+/// Including the terminating NUL.
+///
+/// Six times a name, because a flight computer's last word is usually an error
+/// and an error out of a script arrives with a Lua traceback attached. Trimming
+/// that to thirty-one characters throws away the part that says what went
+/// wrong, which is the only part worth having.
+inline constexpr std::size_t kMaxMessageLength = 192;
 
 /// Mirrors core::EntityKind without including core.
 enum class Kind : std::uint8_t { Vessel = 0, Debris = 1 };
@@ -32,6 +44,14 @@ enum class Kind : std::uint8_t { Vessel = 0, Debris = 1 };
 /// deliberate: a snapshot is a wire type, not a place to report errors.
 struct Name {
   char data[kMaxNameLength]{};
+
+  void assign(std::string_view text) noexcept;
+  [[nodiscard]] std::string_view view() const noexcept;
+};
+
+/// A fixed-capacity message, the same trick as `Name` with a longer buffer.
+struct Text {
+  char data[kMaxMessageLength]{};
 
   void assign(std::string_view text) noexcept;
   [[nodiscard]] std::string_view view() const noexcept;
@@ -55,6 +75,22 @@ enum class Flags : std::uint8_t {
   Escaping = 1U << 2U,
 };
 
+/// What an entity's flight computer is doing.
+///
+/// Published because a script is otherwise invisible: a client that sees a
+/// vessel steering with nobody's hands on the controls needs to be able to say
+/// who is flying it and whether it is still working. Mirrors
+/// `flight::Status`, and includes the "there is no computer here" case as a
+/// value rather than as a separate flag, so a client cannot read a stale status
+/// off an entity that never had one.
+enum class ComputerState : std::uint8_t {
+  None = 0,
+  Idle,
+  Running,
+  Finished,
+  Faulted,
+};
+
 [[nodiscard]] constexpr Flags operator|(Flags a, Flags b) noexcept {
   return static_cast<Flags>(static_cast<std::uint8_t>(a) | static_cast<std::uint8_t>(b));
 }
@@ -64,6 +100,11 @@ enum class Flags : std::uint8_t {
 
 struct EntitySnapshot {
   std::uint64_t id{0};
+  /// The body whose frame the state below is expressed in. A client needs the
+  /// id and not just the body's position, because altitude is measured from
+  /// that body's surface and the radius lives in the body table.
+  std::uint32_t parent{0};
+  std::uint32_t pad{0};
 
   /// Parent-frame state. This is what the physics uses.
   Vec3d position;
@@ -88,7 +129,37 @@ struct EntitySnapshot {
   Name name;
   Kind kind{Kind::Vessel};
   Flags flags{Flags::None};
-  std::uint8_t pad[2]{};
+  std::uint8_t reserved{0};
+
+  /// Propulsion, for an entity built from parts. All zero for a point mass,
+  /// which is how a client tells the two apart without a separate flag.
+  std::uint32_t stage{0};        // the stage currently firing
+  std::uint32_t stage_count{0};
+  double throttle{0.0};          // 0..1
+  double thrust{0.0};            // [N] at the current throttle
+  double propellant{0.0};        // [kg] still aboard
+  double propellant_capacity{0.0};
+  /// Delta-v the stages still attached are worth, recomputed by the host from
+  /// the propellant left. A client must not work this out itself: it is a
+  /// prediction, and prediction is the host's job.
+  double delta_v{0.0};
+
+  /// Air density where the entity is [kg/m^3], zero in vacuum.
+  ///
+  /// Published as a measured quantity rather than left for a client to look up
+  /// from the entity's altitude: the atmosphere is a table with a scale height
+  /// that changes with altitude, and a client that reimplemented it would be
+  /// showing a different number from the one the physics is using.
+  double air_density{0.0};
+
+  /// The flight computer, if one is attached. `computer_message` is the
+  /// script's last word on the subject — an error, the reason it stopped, or
+  /// whatever it last passed to `log`.
+  ComputerState computer{ComputerState::None};
+  std::uint8_t computer_pad[3]{};
+  Text computer_message;
+  /// Instructions the program has executed since it started.
+  double computer_instructions{0.0};
 };
 
 struct BodySnapshot {

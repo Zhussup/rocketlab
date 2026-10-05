@@ -1,0 +1,41 @@
+{
+  "name": "tug",
+  "epoch": "2026-10-05T00:00:00",
+  "entities": [
+    {
+      "name": "Tug",
+      "parent": "Earth",
+      "orbit": {
+        "periapsis_altitude": 400000,
+        "apoapsis_altitude": 400000,
+        "inclination_deg": 51.6
+      },
+      "controllable": true,
+      "parts": [
+        { "part": "probe.core", "stage": 1 },
+        { "part": "tank.fl100", "stage": 1 },
+        { "part": "engine.terrier", "stage": 1 },
+        { "part": "decoupler.large", "stage": 0 },
+        { "part": "tank.fl400", "stage": 0 },
+        { "part": "engine.skipper", "stage": 0 }
+      ]
+    },
+    {
+      "name": "Cargo",
+      "parent": "Earth",
+      "orbit": {
+        "periapsis_altitude": 400000,
+        "apoapsis_altitude": 400000,
+        "inclination_deg": 51.6,
+        "true_anomaly_deg": 180.0
+      },
+      "controllable": false,
+      "parts": [
+        { "part": "probe.core", "stage": 0 },
+        { "part": "cargo.supply", "stage": 0 },
+        { "part": "tank.fl100", "stage": 0 },
+        { "part": "engine.ant", "stage": 0 }
+      ]
+    }
+  ]
+}

@@ -3,8 +3,10 @@
 # share one implementation of the map.
 add_library(rocketlab_render STATIC
   src/camera.cpp
+  src/camera3d.cpp
   src/scene.cpp
-  src/svg.cpp)
+  src/svg.cpp
+  src/text.cpp)
 add_library(rocketlab::render ALIAS rocketlab_render)
 
 target_include_directories(rocketlab_render

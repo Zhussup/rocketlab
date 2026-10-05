@@ -4,6 +4,7 @@
 #include <string>
 
 #include "rocketlab/core/body.hpp"
+#include "rocketlab/core/vessel.hpp"
 
 namespace rocketlab::core {
 
@@ -35,6 +36,14 @@ struct Entity {
   double mass{0.0};    // [kg]
   double radius{0.0};  // [m], for rendering and collision
   bool controllable{false};
+
+  /// The parts this entity is made of. Empty for a point mass such as debris,
+  /// or for a scenario that only gave a mass; for those, `mass` and `radius`
+  /// stand on their own.
+  ///
+  /// `mass` is kept in step with the vessel whenever propellant burns, because a
+  /// client reads it from the snapshot and must never see a stale figure.
+  Vessel vessel;
 };
 
 }  // namespace rocketlab::core

@@ -1,7 +1,12 @@
 add_library(rocketlab_core STATIC
+  src/assembly.cpp
+  src/atmosphere.cpp
+  src/docking.cpp
   src/catalog.cpp
   src/orbital.cpp
+  src/part.cpp
   src/time.cpp
+  src/vessel.cpp
   src/world.cpp)
 
 target_include_directories(rocketlab_core

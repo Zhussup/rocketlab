@@ -46,6 +46,36 @@ struct BodyEphemeris {
   [[nodiscard]] OrbitalElements elements_at(Seconds tdb) const noexcept;
 };
 
+/// One row of a density profile.
+struct AtmosphereLayer {
+  double altitude{0.0};  // [m] above the body's mean radius
+  double density{0.0};   // [kg/m^3]
+};
+
+/// An exponential atmosphere, given as a table of (altitude, density) rows and
+/// interpolated log-linearly between them.
+///
+/// Log-linear is the right interpolation because density is exponential in
+/// altitude: between two rows the model is exactly a single exponential whose
+/// scale height is the one implied by the two densities. A body with one
+/// constant scale height is therefore a two-row table, and the Earth — whose
+/// scale height runs from 6 km at the surface to 60 km in the thermosphere —
+/// is a twelve-row table. Same code, same cost, no special cases.
+///
+/// The rows are the usual US Standard Atmosphere figures, rounded to the
+/// precision that matters for drag. Above the top row the density is zero,
+/// which is what lets a caller ask for the density anywhere without also
+/// carrying a range test around with it.
+struct Atmosphere {
+  std::vector<AtmosphereLayer> layers;  // ascending altitude
+
+  [[nodiscard]] bool empty() const noexcept { return layers.empty(); }
+
+  /// [kg/m^3] at `altitude` above the body's mean radius. Below the first row
+  /// the surface value is held, above the last it is zero.
+  [[nodiscard]] double density_at(double altitude) const noexcept;
+};
+
 struct CelestialBody {
   BodyId id{kInvalidBody};
   std::string name;
@@ -54,9 +84,24 @@ struct CelestialBody {
   double radius{0.0};          // mean radius [m]
   double soi_radius{0.0};      // sphere of influence [m]; zero for the root
   double rotation_period{0.0}; // sidereal spin [s]; zero if not modelled
+  /// Direction of the spin axis in the parent frame. Only the co-rotating
+  /// atmosphere reads it, so a body that has none may leave it at the default.
+  Vec3 spin_axis{0.0, 0.0, 1.0};
+  Atmosphere atmosphere;       // empty for an airless body
   BodyEphemeris ephemeris;     // orbit around `parent`; unused for the root
 
   [[nodiscard]] bool is_root() const noexcept { return parent == kInvalidBody; }
+
+  /// Velocity of the body's rotating atmosphere at `offset` from its centre,
+  /// expressed in the parent frame [m/s]: omega x r. Zero when the body has no
+  /// modelled spin, so an airless or slowly rotating body costs nothing.
+  [[nodiscard]] Vec3 surface_velocity(const Vec3& offset) const noexcept;
+
+  /// Density [kg/m^3] at `offset` from the body's centre, zero for an airless
+  /// body or a point above the top of the profile.
+  [[nodiscard]] double density_at(const Vec3& offset) const noexcept {
+    return atmosphere.density_at(norm(offset) - radius);
+  }
 
   /// State relative to this body's parent at simulation time `tdb`. Returns a
   /// zero state for the root. `parent_mu` is passed in rather than stored so
@@ -97,5 +142,34 @@ class BodySystem {
  private:
   std::vector<CelestialBody> bodies_;
 };
+
+/// An orbit whose elements were published in one plane, restated in another.
+///
+/// The satellite tables give a moon's inclination, node and argument of
+/// periapsis referred to the primary's Laplace plane — which for a close moon
+/// is the primary's equator — together with the inclination and node of that
+/// plane on the ecliptic. Everything else in the catalogue is ecliptic-
+/// referred, so the two conventions have to be reconciled exactly once, when
+/// the catalogue is built. Reconciling them per call would put a rotation into
+/// every ephemeris evaluation.
+///
+/// The mean anomaly is untouched: the orbit is the same orbit, and rotating
+/// the plane it is described in does not change where the moon is along it.
+struct PlaneElements {
+  double inclination{0.0};        // [rad], measured from the ecliptic
+  double ascending_node{0.0};     // [rad], on the ecliptic
+  double argument_periapsis{0.0}; // [rad], in the ecliptic plane
+};
+
+/// The reference plane itself: its inclination to the ecliptic and the
+/// ecliptic longitude of its ascending node.
+struct ReferencePlane {
+  double inclination{0.0};     // [rad]
+  double ascending_node{0.0};  // [rad]
+};
+
+[[nodiscard]] PlaneElements to_ecliptic(double inclination, double ascending_node,
+                                        double argument_periapsis,
+                                        const ReferencePlane& from) noexcept;
 
 }  // namespace rocketlab::core

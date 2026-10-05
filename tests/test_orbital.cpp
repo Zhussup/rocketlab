@@ -211,4 +211,40 @@ TEST_CASE("a radial trajectory is reported as degenerate rather than as NaN", "[
   CHECK(after.r.x == radial.r.x);
   CHECK(after.r.y == radial.r.y);
   CHECK(after.r.z == radial.r.z);
+
+  SECTION("radial to within a rounding error counts as radial") {
+    // This is the case that used to come back as infinities. A transverse
+    // component of a nanometre per second off a nine kilometre per second
+    // ascent leaves an angular momentum small enough that the state reads as
+    // parabolic, and the parabolic branch divides by the semi-latus rectum
+    // p = h^2/mu — so p underflows, the position collapses towards the focus
+    // and the propagated state overflows. The tolerance is relative for the
+    // same reason: what matters is the angle between r and v, not h itself.
+    StateVector nearly = radial;
+    nearly.r = Vec3{kRadiusEarth, 0.0, 0.0};
+    nearly.v = Vec3{9000.0, 1e-10, 0.0};
+
+    const OrbitalElements elements = rv_to_elements(nearly, kMu);
+    CHECK(elements.degenerate);
+    CHECK(elements.p == 0.0);
+
+    const StateVector moved = propagate(nearly, kMu, 600.0);
+    CHECK(std::isfinite(moved.r.x));
+    CHECK(std::isfinite(moved.r.y));
+    CHECK(std::isfinite(moved.r.z));
+    CHECK(std::isfinite(moved.v.x));
+    CHECK(norm(moved.r - nearly.r) == 0.0);
+  }
+
+  SECTION("a trajectory with a real plane is untouched by the tolerance") {
+    // The same ascent with a hundred metres per second out of plane, so the
+    // normal is a tenth of a radian off the pole. That is a plane, and it has
+    // to survive the test that catches a trajectory with none.
+    StateVector tilted;
+    tilted.r = Vec3{kRadiusEarth, 0.0, 0.0};
+    tilted.v = Vec3{9000.0, 1000.0, 100.0};
+    const OrbitalElements elements = rv_to_elements(tilted, kMu);
+    REQUIRE_FALSE(elements.degenerate);
+    CHECK_THAT(elements.i, WithinAbs(std::atan(0.1), 1e-9));
+  }
 }

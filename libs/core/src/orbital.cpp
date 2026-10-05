@@ -191,9 +191,18 @@ OrbitalElements rv_to_elements(const StateVector& state, double mu) noexcept {
   const Vec3 h_vec = cross(state.r, state.v);
   const double h = norm(h_vec);
 
-  // A purely radial trajectory sweeps no area, so no orbital plane exists and
-  // no set of elements can describe it. Flag it rather than emit NaNs.
-  if (!(h > 0.0) || !std::isfinite(h) || r == 0.0) {
+  // A radial trajectory sweeps no area, so no orbital plane exists and no set
+  // of elements can describe it. Flag it rather than emit NaNs.
+  //
+  // The test is relative — h is compared against r*v, which makes it the sine
+  // of the angle between the radius and the velocity — because exact zero is
+  // not the only value that has to be caught. A trajectory that is radial to
+  // within a part in 1e12 is radial for every purpose a simulation has, and
+  // the failure it produces is worse than being wrong: `propagate` classifies
+  // it as parabolic, and the parabolic branch divides by p = h^2/mu, so a
+  // state that missed exact radiality by a rounding error propagates into
+  // infinities and takes the snapshot with it.
+  if (!(h > kNodeTolerance * r * v) || !std::isfinite(h) || r == 0.0) {
     el.degenerate = true;
     return el;
   }
@@ -323,6 +332,46 @@ StateVector state_from_mean_elements(const OrbitalElements& elements, double mu)
   OrbitalElements resolved = elements;
   resolved.nu = true_anomaly_from_mean(mean_anomaly(elements), elements.e);
   return elements_to_rv(resolved, mu);
+}
+
+double time_since_periapsis(const OrbitalElements& elements, double mu) noexcept {
+  if (elements.degenerate) {
+    return 0.0;
+  }
+  const double n = mean_motion(elements.semi_major_axis(), mu);
+  const double period = elements.period(mu);
+  if (!(n > 0.0) || !(period > 0.0)) {
+    return 0.0;
+  }
+  // `mean_anomaly` comes back in (-pi, pi], so this is in (-period/2, period/2].
+  // Wrapping it into a whole period is what makes "time to apoapsis" an answer
+  // about the next apoapsis rather than about the one just gone.
+  double since = std::fmod(mean_anomaly(elements) / n, period);
+  if (since < 0.0) {
+    since += period;
+  }
+  return since;
+}
+
+double time_to_apoapsis(const OrbitalElements& elements, double mu) noexcept {
+  const double period = elements.period(mu);
+  if (elements.degenerate || elements.e >= 1.0 || !(period > 0.0)) {
+    return 0.0;
+  }
+  const double half = 0.5 * period;
+  const double since = time_since_periapsis(elements, mu);
+  // Apoapsis is half a period after periapsis, so the answer is either later
+  // this revolution or later than the periapsis that is still to come.
+  return since <= half ? half - since : period - since + half;
+}
+
+double time_to_periapsis(const OrbitalElements& elements, double mu) noexcept {
+  const double period = elements.period(mu);
+  if (elements.degenerate || elements.e >= 1.0 || !(period > 0.0)) {
+    return 0.0;
+  }
+  const double since = time_since_periapsis(elements, mu);
+  return since <= 0.0 ? -since : period - since;
 }
 
 double mean_anomaly(const OrbitalElements& elements) noexcept {

@@ -1,5 +1,6 @@
 add_library(rocketlab_proto STATIC
-  src/name.cpp)
+  src/name.cpp
+  src/text.cpp)
 add_library(rocketlab::proto ALIAS rocketlab_proto)
 
 target_include_directories(rocketlab_proto

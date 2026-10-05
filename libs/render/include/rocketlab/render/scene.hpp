@@ -44,6 +44,10 @@ struct Primitive {
 
 /// An ordered draw list. Order is the paint order: grid, then bodies, then
 /// trajectories, then entities, then labels on top.
+///
+/// A view with `depth_sort` set moves the bodies and entities into one list
+/// ordered far to near, drawn after the grid and the trajectory; labels still
+/// come last, so a name is never painted over by a marker. See `View`.
 struct Scene {
   std::vector<Primitive> primitives;
   int width{0};
@@ -95,11 +99,28 @@ void follow_target(const proto::Snapshot& snapshot, Camera2D& camera) noexcept;
 
 /// Fills `out` with the frame.
 ///
-/// `trajectory` is the predicted path of `snapshot.selected` in the root
-/// frame, as returned by `SimSource::query_trajectory`; pass an empty vector
-/// for none. It is the caller's job to have asked for the right entity — the
-/// builder has no way to predict anything itself.
-void build_scene(const proto::Snapshot& snapshot, const Camera2D& camera, const SceneOptions& options,
+/// `trajectory` is the predicted path of `snapshot.selected`, in the frame of
+/// that entity's parent body — the form `SimSource::query_trajectory` returns.
+/// Pass an empty vector for none. The builder adds the parent's root position
+/// itself, because a path is only meaningful against the body it is orbiting:
+/// drawn in raw root coordinates, one low Earth orbit smears across an eighth
+/// of a billion kilometres of the Earth's own travel.
+///
+/// It is the caller's job to have asked for the correct entity; the builder
+/// cannot predict anything itself.
+///
+/// The `View` overload is the implementation, and the one a 3D camera reaches:
+/// `Camera2D` and `Camera3D` both produce a `View`, so the flat map and the
+/// orbitable view are one piece of code rather than two that drift. A view with
+/// `depth_sort` set paints markers far to near, which is what a tilted view
+/// needs and what a flat one must not do — every pair of depths in a flat map
+/// is a tie, and a sort over ties is a place for the picture to change for no
+/// reason.
+void build_scene(const proto::Snapshot& snapshot, const Camera2D& camera,
+                 const SceneOptions& options, const std::vector<proto::Vec3d>& trajectory,
+                 Scene& out);
+
+void build_scene(const proto::Snapshot& snapshot, const View& view, const SceneOptions& options,
                  const std::vector<proto::Vec3d>& trajectory, Scene& out);
 
 /// Chooses a round grid spacing in metres such that neighbouring lines are at

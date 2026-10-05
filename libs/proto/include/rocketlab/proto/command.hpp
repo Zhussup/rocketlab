@@ -23,6 +23,27 @@ enum class CommandKind : std::uint8_t {
   CycleTarget,
   /// Remove an entity. `target` is its id.
   Remove,
+  /// Drop the entity's current stage. `target` is its id; 0 means the
+  /// selection.
+  Stage,
+  /// Set the throttle of an entity, 0..1. `target` as for `Stage`, `value` is
+  /// the throttle.
+  SetThrottle,
+  /// Enable (`value` non-zero) or disable the entity's flight computer.
+  /// `target` as for `Stage`. Disabling leaves the vessel exactly as it is —
+  /// on whatever throttle the script last set — so a pilot can take over from
+  /// a program mid-burn without the engine cutting out from under them.
+  SetComputer,
+  /// Join the entity `target` onto the currently selected one, which survives.
+  ///
+  /// The selection is the survivor because it is the one the camera is on and
+  /// the one being flown: a pilot lines up with a target, not the other way
+  /// round. `target` of 0, or an entity that is not there, does nothing.
+  ///
+  /// The host applies the same predicate a client used to decide whether to
+  /// offer the command, and declines quietly when it fails — see
+  /// `core::dock_block`, which is where the numbers live.
+  Dock,
   /// Stop the daemon.
   Quit,
 };
@@ -55,6 +76,32 @@ struct Command {
     Command command;
     command.kind = CommandKind::CycleTarget;
     command.value = static_cast<double>(direction);
+    return command;
+  }
+  [[nodiscard]] static Command stage(std::uint64_t id = 0) noexcept {
+    Command command;
+    command.kind = CommandKind::Stage;
+    command.target = id;
+    return command;
+  }
+  [[nodiscard]] static Command set_throttle(double throttle, std::uint64_t id = 0) noexcept {
+    Command command;
+    command.kind = CommandKind::SetThrottle;
+    command.value = throttle;
+    command.target = id;
+    return command;
+  }
+  [[nodiscard]] static Command set_computer(bool enabled, std::uint64_t id = 0) noexcept {
+    Command command;
+    command.kind = CommandKind::SetComputer;
+    command.value = enabled ? 1.0 : 0.0;
+    command.target = id;
+    return command;
+  }
+  [[nodiscard]] static Command dock(std::uint64_t id) noexcept {
+    Command command;
+    command.kind = CommandKind::Dock;
+    command.target = id;
     return command;
   }
 };

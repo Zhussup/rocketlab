@@ -23,14 +23,20 @@ tag filtering (`[orbital]`, `[time]`).
 ## Layout
 
 ```
-libs/core/     simulation core: no UI, no third-party dependencies
-libs/proto/    snapshot and command types shared by the daemon and clients
-libs/render/   camera and scene building, renderer-agnostic
-apps/simd/     headless daemon: owns the world, ticks the physics
-apps/tui/      FTXUI client: telemetry, entity list, 2D map view
-apps/gui/      graphical client: same camera, rasterised to a window
-scenarios/     vessel and mission definitions
-tests/         unit tests, numeric
+libs/core/      simulation core: no UI, no third-party dependencies
+libs/scenario/  scenario JSON, the only place nlohmann_json is allowed
+libs/proto/     snapshot and command types shared by the daemon and clients
+libs/simhost/   the SimSource implementations: an in-process world, later a socket
+libs/flight/    the flight computer: Lua behind a Lua-free interface
+libs/render/    camera and scene building, renderer-agnostic
+libs/hud/       readout, list model and the assembly editor, shared by every client
+apps/simd/      headless daemon: owns the world, ticks the physics (not built yet)
+apps/cli/       headless client: bodies, parts, scenario, run, vessel, map, fly
+apps/tui/       FTXUI client: telemetry, entity list, map view, assembly editor
+apps/gui/       graphical client: same camera, rasterised to a window, orbitable
+scenarios/      vessel and mission definitions
+scripts/        Lua flight programs
+tests/          unit tests, numeric
 ```
 
 ## Architecture
@@ -86,14 +92,21 @@ Two consequences worth preserving:
   single Julian date, because a double JD resolves to only ~50 µs near the
   present day.
 
-### The 2D map view comes first, and the camera is switchable
+### The flat map is the 3D camera at zero pitch
 
-The first client is a 2D orthographic map: an orbit reads as an ellipse, there
-is no depth-buffer precision problem across nine orders of magnitude, and line
-widths and minimum marker sizes are trivial in screen space. A renderer
-interface keeps the camera and trajectory code independent of the rasteriser,
-so the same map can be drawn into an FTXUI canvas — which is how it will be
-developed and tested — and later into a window.
+An orbit reads as an ellipse, there is no depth-buffer precision problem across
+nine orders of magnitude, and line widths and minimum marker sizes are trivial
+in screen space — so the map is orthographic, and it is the *only* projection
+rather than the first of two. `Camera3D` at `pitch = 0` reduces to `Camera2D`
+exactly, and a test builds a frame through each and compares them primitive for
+primitive. Tilting therefore moves the camera without moving the world, and the
+flat and tilted views cannot disagree about where anything is, because there is
+one piece of code that decides.
+
+A renderer interface keeps the camera and trajectory code independent of the
+rasteriser, so the same map is drawn into an FTXUI canvas in the terminal
+client and into an ImDrawList in the windowed one — the same primitives, four
+backends, and no client ever decides where anything goes.
 
 The camera's centre tracks a *selectable* target and sits at a distance from
 it. Crucially, that selection is client state, not world state: the daemon does
@@ -111,11 +124,48 @@ not know or care what anyone is looking at.
 
 ## Status
 
-M0 is partly done. The simulation time base and the orbital mechanics are
-complete and tested: every conic family propagates, and the numeric suite
-covers the degenerate cases (circular, equatorial, retrograde, hyperbolic,
-parabolic, radial) plus the invariants that matter — shape preservation,
-composability of propagation, and reversibility in time.
+**M0 through M6 are done.** 131 test cases and 4140 assertions, green, with the
+project's own warning set promoted to errors on the development preset.
 
-Still to come for M0: the world and its root frame, the tick loop, and a
-headless CLI to drive them.
+- **M0** — the time base, two-body Kepler propagation for every conic family,
+  the world and its root frame, the tick loop and the headless CLI.
+- **M1** — the FTXUI client: telemetry, entity list, target selection, a 2D map
+  with a tracking camera, cursor-anchored zoom and click-to-select.
+- **M2** — scenarios, the part catalogue, stacks, staging and delta-v
+  accounting, checked against an actual burn.
+- **M3** — a Lua flight computer that is sandboxed (the dangerous libraries are
+  not even in the binary), deterministic (no clock, no filesystem, no RNG) and
+  bounded (an instruction budget and a memory cap). `scripts/hohmann.lua` flies
+  the tug from a 400 km parking orbit to a circular 1200 km one.
+- **M4** — the graphical client: a GLFW window drawing the same map from the
+  same camera through Dear ImGui, with the camera gliding between targets
+  instead of cutting.
+- **M5** — the whole solar system and the air around part of it. Eighteen
+  bodies: the Sun, the planets, and nine moons whose elements are published in
+  their primary's equatorial plane and rotated into the ecliptic once, when the
+  catalogue is built. Sphere-of-influence transitions are *solved for* rather
+  than noticed — a step that straddles a boundary is cut at it and flown as two
+  arcs — so `max_step` is an event granularity and not an accuracy setting.
+  Earth, Venus, Mars and Titan have exponential atmospheres, interpolated
+  log-linearly between tabulated rows, and drag acts on the velocity relative to
+  the co-rotating air, which is enough to bring a 400 km orbit down and enough
+  to make a retrograde one come down faster.
+
+- **M6** — the vessels you fly are now yours to build. Both clients edit a
+  stack with the same state machine in `libs/hud`: a part picker, the stack, its
+  weights, and a stage table that shouts about the one mistake worth catching (an
+  engine whose own stage carries no propellant). The editor edits the scenario
+  *document* — a stack is what a vessel is built from, and the snapshot rightly
+  carries only what it is doing — so building writes the document and restarts
+  the mission, while saving writes the file and does neither. Two vessels can
+  dock: the predicate is one set of numbers in `libs/core` that the host applies
+  to two entities and the client applies to two published states, measured on the
+  gap between the surfaces rather than the distance between the centres. And the
+  map is now a 3D camera that happens to be looking straight down, so `v` tilts
+  it, the right mouse button orbits, and the terminal's flat map is the same
+  camera at zero pitch rather than a second renderer.
+
+`apps/simd`, the daemon that would let the two clients be separate processes,
+is not built yet — both currently drive an in-process `simhost::LocalSimSource`
+behind the `proto::SimSource` interface, which is the seam the daemon will slot
+into.

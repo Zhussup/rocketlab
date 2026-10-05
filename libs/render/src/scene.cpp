@@ -4,6 +4,7 @@
 #include <cmath>
 #include <format>
 #include <string_view>
+#include <utility>
 
 namespace rocketlab::render {
 
@@ -116,7 +117,43 @@ struct PendingLabel {
   ScreenPoint at;  // already offset clear of its marker
   std::string text;
   Color color;
+  /// Lower wins when two labels want the same space. The object being flown
+  /// keeps its name in preference to the scenery it is flying past.
+  int priority{0};
 };
+
+/// A label already committed to the screen, as the row it sits on and the
+/// half-open column span it covers.
+struct PlacedLabel {
+  int row;
+  int x0;
+  int x1;
+};
+
+/// One body or entity's drawables, held back until the paint order is known.
+///
+/// A flat map emits these in snapshot order, and the picture is the one it has
+/// always been. A tilted view has to sort them, and sorting is the only
+/// difference between the two: everything that decides *what* is drawn — the
+/// projection, the size floor, the colour, the reticle — happens once, here,
+/// before either order is chosen.
+struct Marker {
+  Primitive disc;
+  Primitive reticle;
+  bool has_reticle{false};
+  double depth{0.0};
+};
+
+void emit_marker(Scene& out, const Marker& marker) {
+  out.primitives.push_back(marker.disc);
+  if (marker.has_reticle) {
+    out.primitives.push_back(marker.reticle);
+  }
+}
+
+[[nodiscard]] double dot(const proto::Vec3d& a, const proto::Vec3d& b) noexcept {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
 
 }  // namespace
 
@@ -172,16 +209,32 @@ double choose_grid_spacing(double metres_per_pixel, double min_spacing) noexcept
 void build_scene(const proto::Snapshot& snapshot, const Camera2D& camera,
                  const SceneOptions& options, const std::vector<proto::Vec3d>& trajectory,
                  Scene& out) {
-  out.clear();
-  out.width = camera.width;
-  out.height = camera.height;
+  build_scene(snapshot, camera.view(), options, trajectory, out);
+}
 
-  const double max_x = static_cast<double>(std::max(0, camera.width - 1));
-  const double max_y = static_cast<double>(std::max(0, camera.height - 1));
-  const double aspect = camera.cell_aspect > 0.0 ? camera.cell_aspect : 1.0;
-  const double mpp = camera.metres_per_pixel;
+void build_scene(const proto::Snapshot& snapshot, const View& view, const SceneOptions& options,
+                 const std::vector<proto::Vec3d>& trajectory, Scene& out) {
+  out.clear();
+  out.width = view.width;
+  out.height = view.height;
+
+  const double max_x = static_cast<double>(std::max(0, view.width - 1));
+  const double max_y = static_cast<double>(std::max(0, view.height - 1));
+  const double aspect = view.cell_aspect > 0.0 ? view.cell_aspect : 1.0;
+  const double mpp = view.metres_per_pixel;
+
+  // The view-plane components of the centre. These are what the grid is laid
+  // out against, because a grid line is a line of constant position *in the
+  // view plane*: measured against root X and Y it would slide sideways as the
+  // view turned, which is the one thing a reference grid must not do. With no
+  // yaw the two agree exactly — `right` and `up` are then the root axes — so
+  // the flat map's picture is unchanged.
+  const double origin_x = dot(view.center, view.right);
+  const double origin_y = dot(view.center, view.up);
 
   std::vector<PendingLabel> labels;
+  std::vector<Marker> bodies;
+  std::vector<Marker> entities;
 
   // --- grid -----------------------------------------------------------------
   //
@@ -193,10 +246,10 @@ void build_scene(const proto::Snapshot& snapshot, const Camera2D& camera,
     const double half_span_x = 0.5 * max_x * mpp / aspect;
     const double half_span_y = 0.5 * max_y * mpp;
 
-    const double x_lo = camera.center_x - half_span_x;
-    const double x_hi = camera.center_x + half_span_x;
-    const double y_lo = camera.center_y - half_span_y;
-    const double y_hi = camera.center_y + half_span_y;
+    const double x_lo = origin_x - half_span_x;
+    const double x_hi = origin_x + half_span_x;
+    const double y_lo = origin_y - half_span_y;
+    const double y_hi = origin_y + half_span_y;
 
     const auto first_multiple = [](double lo, double step) {
       return std::ceil(lo / step) * step;
@@ -215,7 +268,7 @@ void build_scene(const proto::Snapshot& snapshot, const Camera2D& camera,
         const double x = first_x + i * spacing;
         // Built straight in screen space: a vertical line spans the whole
         // height, so projecting it twice would be wasted work.
-        const double sx = 0.5 * max_x + aspect * (x - camera.center_x) / mpp;
+        const double sx = 0.5 * max_x + aspect * (x - origin_x) / mpp;
         Primitive& line = out.add(PrimitiveKind::Polyline,
                                   std::abs(x) < spacing * 0.5 ? colors::kAxis : colors::kGrid);
         line.width = 1.0;
@@ -225,7 +278,7 @@ void build_scene(const proto::Snapshot& snapshot, const Camera2D& camera,
     if (rows > 0 && rows < kMaxGridLines) {
       for (int i = 0; i < rows; ++i) {
         const double y = first_y + i * spacing;
-        const double sy = 0.5 * max_y - (y - camera.center_y) / mpp;
+        const double sy = 0.5 * max_y - (y - origin_y) / mpp;
         Primitive& line = out.add(PrimitiveKind::Polyline,
                                   std::abs(y) < spacing * 0.5 ? colors::kAxis : colors::kGrid);
         line.width = 1.0;
@@ -238,31 +291,57 @@ void build_scene(const proto::Snapshot& snapshot, const Camera2D& camera,
   if (options.show_bodies) {
     for (std::uint32_t i = 0; i < snapshot.body_count && i < proto::kMaxBodies; ++i) {
       const proto::BodySnapshot& body = snapshot.bodies[i];
-      const ScreenPoint at = camera.project(body.position);
+      const ScreenPoint at = view.project(body.position);
       if (!on_screen(at, max_x, max_y, 0.0)) {
         continue;
       }
 
-      const double radius = std::max(camera.to_pixels(body.radius), options.min_body_radius);
-      Primitive& disc = out.add(PrimitiveKind::Disc, colors::kBody);
-      disc.points = {at};
-      disc.radius_y = radius;
-      disc.radius_x = radius * aspect;
+      const double radius = std::max(view.to_pixels(body.radius), options.min_body_radius);
+      Marker marker;
+      marker.disc.kind = PrimitiveKind::Disc;
+      marker.disc.color = colors::kBody;
+      marker.disc.points = {at};
+      marker.disc.radius_y = radius;
+      marker.disc.radius_x = radius * aspect;
+      marker.depth = view.depth(body.position);
+      bodies.push_back(std::move(marker));
 
       if (options.show_labels) {
         labels.push_back(PendingLabel{
-            ScreenPoint{at.x + disc.radius_x + options.label_offset, at.y},
-            std::string(body.name.view()), colors::kBodyDim});
+            ScreenPoint{at.x + radius * aspect + options.label_offset, at.y},
+            std::string(body.name.view()), colors::kBodyDim, 2});
       }
     }
   }
 
   // --- predicted path -------------------------------------------------------
+  //
+  // Anchored on the selected entity's parent, which is what makes an orbit
+  // look like an orbit. The parent position comes straight out of the snapshot
+  // rather than being asked for separately, so a path and the object it
+  // belongs to can never be drawn against two different anchors.
+  const bool depth_sort = view.depth_sort;
+
+  if (!depth_sort) {
+    for (const Marker& marker : bodies) {
+      emit_marker(out, marker);
+    }
+  }
+
   if (options.show_trajectory && !trajectory.empty()) {
+    proto::Vec3d anchor;
+    for (std::uint32_t i = 0; i < snapshot.entity_count && i < proto::kMaxEntities; ++i) {
+      if (snapshot.entities[i].id == snapshot.selected) {
+        anchor = snapshot.entities[i].parent_position;
+        break;
+      }
+    }
+
     std::vector<ScreenPoint> path;
     path.reserve(trajectory.size());
     for (const proto::Vec3d& point : trajectory) {
-      path.push_back(camera.project(point));
+      path.push_back(view.project(
+          proto::Vec3d{anchor.x + point.x, anchor.y + point.y, anchor.z + point.z}));
     }
     append_path(out, colors::kTrajectory, 1.0, path, max_x, max_y);
   }
@@ -270,7 +349,8 @@ void build_scene(const proto::Snapshot& snapshot, const Camera2D& camera,
   // --- entities -------------------------------------------------------------
   for (std::uint32_t i = 0; i < snapshot.entity_count && i < proto::kMaxEntities; ++i) {
     const proto::EntitySnapshot& entity = snapshot.entities[i];
-    const ScreenPoint at = camera.project(root_position(entity));
+    const proto::Vec3d root = root_position(entity);
+    const ScreenPoint at = view.project(root);
     const bool selected = entity.id == snapshot.selected;
     if (!on_screen(at, max_x, max_y, 2.0)) {
       continue;
@@ -281,43 +361,119 @@ void build_scene(const proto::Snapshot& snapshot, const Camera2D& camera,
       color = colors::kWarning;
     }
 
-    const double radius = std::max(camera.to_pixels(entity.radius), options.min_entity_radius);
+    const double radius = std::max(view.to_pixels(entity.radius), options.min_entity_radius);
 
-    Primitive& disc = out.add(PrimitiveKind::Disc, selected ? colors::kSelection : color);
-    disc.points = {at};
-    disc.radius_y = radius;
-    disc.radius_x = radius * aspect;
+    Marker marker;
+    marker.disc.kind = PrimitiveKind::Disc;
+    marker.disc.color = selected ? colors::kSelection : color;
+    marker.disc.points = {at};
+    marker.disc.radius_y = radius;
+    marker.disc.radius_x = radius * aspect;
+    marker.depth = view.depth(root);
 
     if (selected) {
       // A reticle around the selected object. The camera centre is on the
       // object, so without one a zoomed-in view gives no clue which of several
       // markers is the one being flown.
-      Primitive& reticle = out.add(PrimitiveKind::Cross, colors::kSelection);
-      reticle.points = {at};
-      reticle.radius_y = radius + 1.0;
-      reticle.radius_x = (radius + 1.0) * aspect;
+      marker.has_reticle = true;
+      marker.reticle.kind = PrimitiveKind::Cross;
+      marker.reticle.color = colors::kSelection;
+      marker.reticle.points = {at};
+      marker.reticle.radius_y = radius + 1.0;
+      marker.reticle.radius_x = (radius + 1.0) * aspect;
     }
+    entities.push_back(std::move(marker));
 
     if (options.show_labels) {
-      labels.push_back(PendingLabel{ScreenPoint{at.x + disc.radius_x + options.label_offset, at.y},
-                                    std::string(entity.name.view()), colors::kLabel});
+      labels.push_back(
+          PendingLabel{ScreenPoint{at.x + radius * aspect + options.label_offset,
+                                   at.y},
+                       std::string(entity.name.view()), colors::kLabel, selected ? 0 : 1});
+    }
+  }
+
+  // --- marker order ---------------------------------------------------------
+  //
+  // The flat map keeps the snapshot's order, which is also the order it drew
+  // them in before there was any choice. A tilted view sorts far to near, so a
+  // nearer marker paints over a farther one; ties keep bodies ahead of entities
+  // because that is the order they were collected in and the sort is stable.
+  if (depth_sort) {
+    std::vector<Marker> merged;
+    merged.reserve(bodies.size() + entities.size());
+    merged.insert(merged.end(), bodies.begin(), bodies.end());
+    merged.insert(merged.end(), entities.begin(), entities.end());
+    std::stable_sort(merged.begin(), merged.end(),
+                     [](const Marker& a, const Marker& b) { return a.depth > b.depth; });
+    for (const Marker& marker : merged) {
+      emit_marker(out, marker);
+    }
+  } else {
+    for (const Marker& marker : entities) {
+      emit_marker(out, marker);
     }
   }
 
   // --- labels ---------------------------------------------------------------
   //
-  // Emitted last so they sit on top of every marker, and skipped when they
-  // would run off the right edge rather than being truncated into nonsense.
+  // Emitted last so they sit on top of every marker. A label is dropped when it
+  // would run off the right edge or when every row near its marker is already
+  // taken: two markers almost on top of each other would otherwise interleave
+  // their names into one unreadable word. Before dropping one, the nearby rows
+  // are tried, so a crowded view loses a name only when it is genuinely out of
+  // room. Priority decides who gets first pick, so the tracked object is never
+  // the one that loses its name.
   if (options.show_labels) {
+    std::stable_sort(labels.begin(), labels.end(),
+                     [](const PendingLabel& a, const PendingLabel& b) {
+                       return a.priority < b.priority;
+                     });
+
+    // Rows to try, in order: straight out from the marker first, then up and
+    // down. Two rows either way still reads as belonging to the marker.
+    constexpr int kRowOffsets[] = {0, -1, 1, -2, 2};
+
+    std::vector<PlacedLabel> placed;
+    placed.reserve(labels.size());
     for (const PendingLabel& label : labels) {
       const ScreenPoint at = label.at;
-      if (at.x < 0.0 ||
-          at.x + static_cast<double>(label.text.size()) > max_x ||
-          at.y < 0.0 || at.y > max_y) {
+      const double length = static_cast<double>(label.text.size());
+      if (at.x < 0.0 || at.x + length > max_x || at.y < 0.0 || at.y > max_y) {
         continue;
       }
+
+      const int base_row = static_cast<int>(std::floor(at.y + 0.5));
+      const int x0 = static_cast<int>(std::floor(at.x));
+      const int x1 = x0 + static_cast<int>(label.text.size());
+
+      int row = base_row;
+      bool room = false;
+      for (const int dy : kRowOffsets) {
+        const int candidate = base_row + dy;
+        if (candidate < 0 || candidate > static_cast<int>(max_y)) {
+          continue;
+        }
+        bool clash = false;
+        for (const PlacedLabel& other : placed) {
+          // A blank column between neighbours keeps adjacent labels legible.
+          if (other.row == candidate && x0 <= other.x1 && other.x0 <= x1) {
+            clash = true;
+            break;
+          }
+        }
+        if (!clash) {
+          row = candidate;
+          room = true;
+          break;
+        }
+      }
+      if (!room) {
+        continue;
+      }
+      placed.push_back(PlacedLabel{row, x0, x1});
+
       Primitive& text = out.add(PrimitiveKind::Text, label.color);
-      text.points = {at};
+      text.points = {ScreenPoint{at.x, static_cast<double>(row)}};
       text.text = label.text;
     }
   }
