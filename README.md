@@ -8,8 +8,9 @@ terminal dashboard and a graphical map view.
 
 ## Building
 
-Requires a C++20 compiler, CMake ≥ 3.24 and Ninja. Catch2 is fetched
-automatically at configure time.
+Requires a C++20 compiler, CMake ≥ 3.24 and Ninja. Catch2, nlohmann_json, FTXUI,
+Lua, GLFW and Dear ImGui are all fetched at configure time, so there is nothing
+to install for the core, the tests or the terminal client.
 
 ```sh
 cmake --preset dev
@@ -17,8 +18,38 @@ cmake --build --preset dev
 ctest --test-dir build/dev --output-on-failure
 ```
 
-`build/dev/tests/rocketlab_tests` runs the suite directly, with Catch2's own
-tag filtering (`[orbital]`, `[time]`).
+The windowed client is the one thing with system prerequisites: it needs an
+OpenGL development package and the X11 extension headers GLFW links against.
+On Debian/Ubuntu:
+
+```sh
+sudo apt install libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+                 libxi-dev libxxf86vm-dev libxext-dev libxrender-dev libxfixes-dev
+```
+
+Without them the `dev` preset fails at configure time, in GLFW's own
+`find_package` and not in this project's code. The answer is `dev-headless` —
+the same tree with the two clients switched off, which is also what a core-only
+build or a CI runner wants:
+
+```sh
+cmake --preset dev-headless
+cmake --build --preset dev-headless
+ctest --test-dir build/dev-headless --output-on-failure
+```
+
+Each target builds into a directory named after it:
+
+```
+build/dev/apps/cli/rocketlab        headless driver
+build/dev/apps/tui/rocketlab_tui    terminal client
+build/dev/apps/gui/rocketlab_gui    windowed client
+build/dev/tests/rocketlab_tests     the suite
+```
+
+Every one of them takes `--help`, and the clients take a scenario path:
+`./build/dev/apps/gui/rocketlab_gui scenarios/tug.json`. `rocketlab_tests` also
+runs directly and accepts Catch2 tag filters (`[orbital]`, `[time]`).
 
 ## Layout
 
@@ -114,13 +145,20 @@ not know or care what anyone is looking at.
 
 ## Roadmap
 
-- **M0 core** — time, two-body Kepler propagation, root frame, headless CLI
-- **M1 TUI** — telemetry, entity list, target selection, canvas map view
-- **M2** — scenarios, parts, staging, delta-v accounting
-- **M3** — Lua flight computer: sandboxed, deterministic, with an instruction budget
-- **M4 GUI** — window, same camera, smooth target transitions
-- **M5** — patched conics, atmospheres, planets and moons
-- **M6** — visual assembly editor, 3D view, docking
+M0 through M6 *were* the plan, and all six are done — the **Status** section
+below records what each one turned out to be. One piece of scaffolding from the
+architecture is still unbuilt:
+
+- **simd** — the headless daemon that owns the world and ticks the physics, so
+  the two clients become separate processes rather than parts of one binary.
+  Both currently drive an in-process `simhost::LocalSimSource` behind the
+  `proto::SimSource` interface, which is the seam it slots into;
+  `simhost::RemoteSimSource` (double-buffered shared memory out, a Unix socket
+  back) is the other half and is equally unbuilt.
+
+Nothing beyond that is scheduled. The milestones were a route to a working
+simulator rather than a backlog, so what comes next is whatever turns out to be
+missing once the thing has been flown.
 
 ## Status
 
@@ -164,8 +202,3 @@ project's own warning set promoted to errors on the development preset.
   map is now a 3D camera that happens to be looking straight down, so `v` tilts
   it, the right mouse button orbits, and the terminal's flat map is the same
   camera at zero pitch rather than a second renderer.
-
-`apps/simd`, the daemon that would let the two clients be separate processes,
-is not built yet — both currently drive an in-process `simhost::LocalSimSource`
-behind the `proto::SimSource` interface, which is the seam the daemon will slot
-into.
